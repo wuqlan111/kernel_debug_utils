@@ -4,6 +4,7 @@
 #include <linux/debugfs.h>
 
 #include "debug_log.h"
+#include "irq_debug.h"
 
 #define DEBUG_UTILS_ROOT_DIR "debug_utils"
 
@@ -18,8 +19,16 @@ static int32_t __init debug_utils_init(void)
 
     if (!debug_utils_root_dir)
     {
-        pr_err("ebug utils init failed!\n");
         ret = -EINVAL;
+        goto end;
+    }
+
+    ret = irq_debug_init(debug_utils_root_dir);
+
+end:
+    if (ret)
+    {
+        pr_err("ebug utils init failed!\n");
     }
     else
     {
