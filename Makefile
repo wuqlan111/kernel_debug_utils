@@ -11,6 +11,7 @@ COMPILE_ARCH = arm64
 COMPILE_CROSS = 
 
 debug_utils-y = main.o
+obj-y += irq/
 
 special_exist = $(shell if [ -d $(SPECIAL_KDIR) ]; then echo "exist"; else echo "noexist"; fi)
 $(info $(special_exist))
