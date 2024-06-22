@@ -203,9 +203,69 @@ static const struct file_operations irqdesc_info_fops = {
     .llseek = default_llseek,
 };
 
+static ssize_t affinity_hint_write(struct file *fp, const char __user *buf,
+                                   size_t count, loff_t *ppos)
+{
+    char irq_str[64] = {0};
+    int32_t ret = 0;
+    int32_t len = simple_write_to_buffer(irq_str, sizeof(irq_str), ppos, buf, count);
+    cpumask_var_t m = {0};
+
+    char *p = strchr(irq_str, '\r');
+    if (p)
+    {
+        *p = '\0';
+    }
+    p = strchr(irq_str, '\n');
+    if (p)
+    {
+        *p = '\0';
+    }
+
+    unsigned long res = 0;
+    ret = kstrtol(irq_str, 16, &res);
+    if (ret)
+    {
+        len = -EPERM;
+        pr_err("user cpu mask [%s] invalid\n", irq_str);
+        goto end;
+    }
+
+    if (!zalloc_cpumask_var(&m, GFP_KERNEL))
+    {
+        len = -ENOMEM;
+        goto end;
+    }
+
+    for (uint32_t i = 0; i < 32; ++i)
+    {
+        if (res & BIT(i))
+        {
+            cpumask_set_cpu(i, m);
+        }
+    }
+
+    ret = irq_set_affinity_hint(get_export_irq(), m);
+    if (ret)
+    {
+        len = ret;
+    }
+
+end:
+    return len;
+}
+
+static const struct file_operations affinity_hint_fops = {
+    .owner = THIS_MODULE,
+    .open = simple_open,
+    .write = affinity_hint_write,
+    .llseek = default_llseek,
+};
+
 static debugfs_file_init_t irqdesc_debugsf_files[] = {
     INIT_DEBUGFS_FILE_CREATE(export_irqdesc, NULL, 0666),
     INIT_DEBUGFS_FILE_CREATE(irqdesc_info, NULL, 0444),
+    INIT_DEBUGFS_FILE_CREATE(affinity_hint, NULL, 0222),
 };
 
 int32_t debug_irqdesc_init(struct dentry *irq_root_dir)
