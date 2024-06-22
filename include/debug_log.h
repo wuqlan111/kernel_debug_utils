@@ -7,6 +7,12 @@
 #undef pr_fmt
 #define pr_fmt(fmt) "[%s(): %u] - " fmt, __func__, __LINE__
 
+#define TYPE_CASE(x) \
+    case (x):        \
+        return #x;
+
+#define STRING_OR_NULL(str) ((str) ? (str) : "null")
+
 typedef struct
 {
     char *name;
@@ -16,11 +22,22 @@ typedef struct
 } debugfs_file_init_t;
 
 #define INIT_DEBUGFS_FILE_CREATE(nm, dt, md) \
-    {                                              \
-        .name = #nm,                             \
-        .data = (dt),                              \
-        .mode = (md),                              \
-        .fops = &nm##_fops,                       \
+    {                                        \
+        .name = #nm,                         \
+        .data = (dt),                        \
+        .mode = (md),                        \
+        .fops = &nm##_fops,                  \
+    }
+
+typedef struct
+{
+    unsigned long mask;
+    const char *name;
+} bit_mask_descr_t;
+
+#define BIT_MASK_DESCR(m)     \
+    {                         \
+        .mask = m, .name = #m \
     }
 
 #endif
