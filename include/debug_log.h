@@ -13,6 +13,11 @@
 
 #define STRING_OR_NULL(str) ((str) ? (str) : "null")
 
+#define UINT_TO_POINTER(x) ({\
+        uintptr_t tmp_int = (x); \
+        void * ptr = (void *)tmp_int;\
+        ptr; })
+
 typedef struct
 {
     char *name;
