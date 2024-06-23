@@ -13,6 +13,7 @@
 #include <linux/string.h>
 
 #include "debug_log.h"
+#include "debug_utils.h"
 
 #define IRQDOMAIN_DEBUG_ROOT_DIR "irqdomain"
 #define DEFAULT_IRQ_DOMAIN_CONFIG "default_irqdomain"
@@ -303,30 +304,6 @@ static debugfs_file_init_t irqdomain_debugsf_files[] = {
 
 int32_t debug_irqdomain_init(struct dentry *irq_root_dir)
 {
-    int32_t ret = 0;
-    if (!irq_root_dir)
-    {
-        return -EPERM;
-    }
-
-    struct dentry *dir = debugfs_create_dir(IRQDOMAIN_DEBUG_ROOT_DIR, irq_root_dir);
-    if (!dir)
-    {
-        pr_err("init irqdomain debug failed!\n");
-        return -EINVAL;
-    }
-
-    for (int32_t i = 0; i < ARRAY_SIZE(irqdomain_debugsf_files); ++i)
-    {
-        if (!debugfs_create_file(irqdomain_debugsf_files[i].name, irqdomain_debugsf_files[i].mode,
-                                 dir, irqdomain_debugsf_files[i].data, irqdomain_debugsf_files[i].fops))
-        {
-            ret = -EINVAL;
-            pr_err("create " IRQDOMAIN_DEBUG_ROOT_DIR "/%s failed",
-                   irqdomain_debugsf_files[i].name);
-            break;
-        }
-    }
-
-    return ret;
+    return debug_utils_common_init(irq_root_dir, IRQDOMAIN_DEBUG_ROOT_DIR,
+                                   irqdomain_debugsf_files, ARRAY_SIZE(irqdomain_debugsf_files));
 }

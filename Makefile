@@ -26,7 +26,9 @@ irq_debug_objs = irq/irqdebug_init.o \
 				irq/irqdesc_debug.o \
 				irq/irqdomain_debug.o
 
-debug_utils-y = main.o  $(irq_debug_objs)
+debug_utils_objs = utils/debug_utils.o
+
+debug_utils-y = main.o  $(irq_debug_objs) $(debug_utils_objs)
 
 obj-m += debug_utils.o
 KDIR  = $(DEFAULT_KDIR)

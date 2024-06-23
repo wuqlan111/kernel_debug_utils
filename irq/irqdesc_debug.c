@@ -12,6 +12,8 @@
 #include <linux/interrupt.h>
 
 #include "debug_log.h"
+#include "debug_utils.h"
+#include "irq_debug.h"
 
 #define IRQDESC_DEBUG_ROOT_DIR "irqdesc"
 #define INVALID_IRQ_NUMBER (-1)
@@ -270,30 +272,6 @@ static debugfs_file_init_t irqdesc_debugsf_files[] = {
 
 int32_t debug_irqdesc_init(struct dentry *irq_root_dir)
 {
-    int32_t ret = 0;
-    if (!irq_root_dir)
-    {
-        return -EPERM;
-    }
-
-    struct dentry *dir = debugfs_create_dir(IRQDESC_DEBUG_ROOT_DIR, irq_root_dir);
-    if (!dir)
-    {
-        pr_err("init irqdesc debug failed!\n");
-        return -EINVAL;
-    }
-
-    for (int32_t i = 0; i < ARRAY_SIZE(irqdesc_debugsf_files); ++i)
-    {
-        if (!debugfs_create_file(irqdesc_debugsf_files[i].name, irqdesc_debugsf_files[i].mode,
-                                 dir, irqdesc_debugsf_files[i].data, irqdesc_debugsf_files[i].fops))
-        {
-            ret = -EINVAL;
-            pr_err("create " IRQDESC_DEBUG_ROOT_DIR "/%s failed",
-                   irqdesc_debugsf_files[i].name);
-            break;
-        }
-    }
-
-    return ret;
+    return debug_utils_common_init(irq_root_dir, IRQDESC_DEBUG_ROOT_DIR,
+                                   irqdesc_debugsf_files, ARRAY_SIZE(irqdesc_debugsf_files));
 }
