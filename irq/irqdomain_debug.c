@@ -124,14 +124,14 @@ static const struct file_operations export_irqdomain_config_fops = {
 static struct irq_domain *find_irq_domain_by_name(const char *name)
 {
     int32_t found = 0;
-    struct irq_domain *ret = NULL;
+    struct irq_domain *ret = NULL, *tmp = NULL;
     const struct list_head *irqdomains = get_export_irqdomains_list();
     if (!name || !irqdomains)
     {
         return NULL;
     }
 
-    list_for_each_entry(ret, irqdomains, link)
+    list_for_each_entry_safe(ret, tmp, irqdomains, link)
     {
         if (!strcmp(ret->name, name))
         {
@@ -246,6 +246,8 @@ static ssize_t default_irqdomain_read(struct file *fp, char __user *buf,
                                       size_t count, loff_t *ppos)
 {
     struct irq_domain *domain = *get_export_default_irq_domain();
+    pr_info("pp_domain: 0x%p,  domain: 0x%p\n", get_export_default_irq_domain(),
+            *get_export_default_irq_domain());
     if (!domain)
     {
         return -EINVAL;
@@ -276,7 +278,8 @@ static ssize_t existed_irqdomain_read(struct file *fp, char __user *buf,
 
     list_for_each_entry(domain, irqdomains, link)
     {
-        len += snprintf(tmp_str + len, sizeof(tmp_str) - len, "%s\n", domain->name);
+        len += snprintf(tmp_str + len, sizeof(tmp_str) - len, "%s (0x%p)\n",
+                        STRING_OR_NULL(domain->name), domain);
     }
 
     return simple_read_from_buffer(buf, count, ppos, tmp_str,
