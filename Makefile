@@ -24,7 +24,8 @@ endif
 
 irq_debug_objs = irq/irqdebug_init.o \
 				irq/irqdesc_debug.o \
-				irq/irqdomain_debug.o
+				irq/irqdomain_debug.o \
+				irq/irqdebug_hw.o
 
 debug_utils_objs = utils/debug_utils.o
 

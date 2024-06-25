@@ -9,6 +9,7 @@
 
 extern int32_t debug_irqdesc_init(struct dentry *irq_root_dir);
 extern int32_t debug_irqdomain_init(struct dentry *irq_root_dir);
+extern int32_t debug_irq_hw_breakpoint_init(struct dentry *irq_root_dir);
 
 int32_t irq_debug_init(struct dentry *root_dir)
 {
@@ -29,6 +30,7 @@ int32_t irq_debug_init(struct dentry *root_dir)
 
     ret = debug_irqdesc_init(dir);
     ret |= debug_irqdomain_init(dir);
+    ret |= debug_irq_hw_breakpoint_init(dir);
 
 end:
     return ret;
