@@ -2,6 +2,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/debugfs.h>
+#include <linux/kallsyms.h>
 
 #include "debug_log.h"
 #include "debug_utils.h"
@@ -35,3 +36,26 @@ int32_t debug_utils_common_init(struct dentry *root_dir, const char *sub_dir,
 
     return ret;
 }
+
+#ifdef CONFIG_KALLSYMS
+typedef unsigned long (*kallsyms_lookup_name_func_t)(const char *);
+
+void *debug_utils_get_kernel_symbol(const char *sym)
+{
+    kallsyms_lookup_name_func_t get_sym_func = UINT_TO_POINTER(0xffff8000101830b0);
+    if (!sym)
+    {
+        return NULL;
+    }
+
+    return UINT_TO_POINTER(get_sym_func(sym));
+}
+
+#else
+
+void *debug_utils_get_kernel_symbol(const char *sym)
+{
+    return NULL;
+}
+
+#endif

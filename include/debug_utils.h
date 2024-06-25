@@ -34,4 +34,6 @@ typedef struct
 int32_t debug_utils_common_init(struct dentry *root_dir, const char *sub_dir,
                                 const debugfs_file_init_t *init_files, const int32_t size);
 
+void *debug_utils_get_kernel_symbol(const char *sym);
+
 #endif

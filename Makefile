@@ -27,9 +27,12 @@ irq_debug_objs = irq/irqdebug_init.o \
 				irq/irqdomain_debug.o \
 				irq/irqdebug_hw.o
 
+fs_debug_objs = fs/fsdebug_init.o  \
+				fs/fileinfo_debug.o
+
 debug_utils_objs = utils/debug_utils.o
 
-debug_utils-y = main.o  $(irq_debug_objs) $(debug_utils_objs)
+debug_utils-y = main.o  $(irq_debug_objs) $(debug_utils_objs) $(fs_debug_objs)
 
 obj-m += debug_utils.o
 KDIR  = $(DEFAULT_KDIR)

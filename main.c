@@ -24,6 +24,7 @@ static int32_t __init debug_utils_init(void)
     }
 
     ret = irq_debug_init(debug_utils_root_dir);
+    ret |= fs_debug_init(debug_utils_root_dir);
 
 end:
     if (ret)
