@@ -10,7 +10,8 @@
         case (x):    \
                 return #x;
 
-#define STRING_OR_NULL(str) ((str) ? (str) : "null")
+#define STRING_OR_NULL(str) (((char *)(str) ? (char *)(str) : "null"))
+#define BOOL_TO_STR(b) ((b) ? "true" : "false")
 
 #define UINT_TO_POINTER(x) ((void *)((uintptr_t)(x)))
 
