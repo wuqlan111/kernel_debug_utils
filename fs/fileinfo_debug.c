@@ -572,6 +572,7 @@ static int32_t dump_file_address_space(struct address_space *mapping, char *buf,
     outlen += debug_utils_dump_data(page_data, len, buf + outlen);
     outlen += sprintf(buf + outlen, "\n\n");
     kunmap(pg);
+    put_page(pg);
 
 end:
     return outlen;
