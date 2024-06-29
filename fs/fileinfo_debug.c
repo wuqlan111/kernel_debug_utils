@@ -12,6 +12,7 @@
 #include <linux/fs.h>
 #include <linux/genhd.h>
 #include <linux/blkdev.h>
+#include <linux/page-flags.h>
 
 #include "debug_log.h"
 #include "debug_utils.h"
@@ -162,6 +163,7 @@ static ssize_t file_inode_read(struct file *fp, char __user *buf,
     len += sprintf(tmp_buf + len, "super_block_name: %s\n",
                    STRING_OR_NULL(node->i_sb->s_type->name));
     len += sprintf(tmp_buf + len, "address_space: 0x%p\n", node->i_mapping);
+    len += sprintf(tmp_buf + len, "i_data: 0x%p\n", &node->i_data);
     len += sprintf(tmp_buf + len, "ino: %#lx\n", node->i_ino);
     len += sprintf(tmp_buf + len, "i_nlink: %#x\n", node->i_nlink);
     len += sprintf(tmp_buf + len, "i_rdev: %#x\n", node->i_rdev);
@@ -381,13 +383,195 @@ static const struct file_operations file_block_dev_fops = {
     .llseek = default_llseek,
 };
 
+static struct
+{
+    uint8_t is_dump;
+    uint8_t is_mapping;
+    uint32_t page_idx;
+    uint32_t page_offset;
+    uint32_t len;
+} file_address_space_cmd_args = {0};
+static ssize_t file_address_space_write(struct file *fp, const char __user *buf,
+                                        size_t count, loff_t *ppos)
+{
+    int32_t ret = 0;
+    char tmp_str[256] = {0};
+    int32_t len = simple_write_to_buffer(tmp_str, sizeof(tmp_str),
+                                         ppos, buf, count);
+
+    if (len < count)
+    {
+        return -EPERM;
+    }
+
+    remove_string_line_break(tmp_str);
+
+    char **argv = NULL;
+    uint32_t argc = 0;
+    ret = get_cmd_args_from_string(tmp_str, &argv, &argc);
+    if (ret || !argv || !argc)
+    {
+        len = -EPERM;
+        pr_err("input cmd args invalid\n");
+        goto end;
+    }
+
+    uint32_t is_dump = 0;
+    if (!strcmp(argv[0], "dump"))
+    {
+        is_dump = 1;
+    }
+    else if (!strcmp(argv[0], "show"))
+    {
+        is_dump = 0;
+    }
+    else
+    {
+        len = -EPERM;
+        pr_err("ops [ %s ] invalid\n", argv[0]);
+        goto end;
+    }
+
+    if ((is_dump && (argc != 5)) || (!is_dump && (argc != 2)))
+    {
+        len = -EPERM;
+        pr_err("cmd args count [%u] invalid!\n", argc);
+        goto end;
+    }
+
+    uint32_t is_mapping = 0;
+    if (!strcmp(argv[1], "i_mapping"))
+    {
+        is_mapping = 1;
+    }
+    else if (!strcmp(argv[1], "i_data"))
+    {
+        is_mapping = 0;
+    }
+    else
+    {
+        pr_err("address space [%s] invalid!\n", argv[1]);
+        len = -EPERM;
+        goto end;
+    }
+
+    ret = 0;
+    unsigned long page_idx = 0, page_offset = 0, dump_len = 0;
+    if (is_dump)
+    {
+        ret = kstrtoul(argv[2], 16, &page_idx);
+        ret |= kstrtoul(argv[3], 16, &page_offset);
+        ret |= kstrtoul(argv[4], 10, &dump_len);
+    }
+
+    if (ret || ((dump_len + page_offset) > 4096))
+    {
+        len = -EPERM;
+        goto end;
+    }
+
+    file_address_space_cmd_args.is_dump = is_dump;
+    file_address_space_cmd_args.is_mapping = is_mapping;
+    file_address_space_cmd_args.page_idx = page_idx;
+    file_address_space_cmd_args.page_offset = page_offset;
+    file_address_space_cmd_args.len = len;
+
+end:
+    if (argv)
+    {
+        kfree(argv);
+    }
+    if (len < 0)
+    {
+        pr_notice("usage: show|dump i_mapping|i_data [page_idx] [page_offset] [len]\n");
+    }
+
+    return len;
+}
+
+static int32_t show_file_address_space(const struct address_space *mapping, char *buf, uint32_t size)
+{
+    int32_t len = 0;
+    if (!mapping || !buf || !size)
+    {
+        return -EPERM;
+    }
+
+    len = sprintf(buf, "\n\n**slef**: 0x%p\n", mapping);
+    len += sprintf(buf + len, "host: 0x%p\n", mapping->host);
+    len += sprintf(buf + len, "nrpages: %lu\n", mapping->nrpages);
+    len += sprintf(buf + len, "nrexceptional: %lu\n", mapping->nrexceptional);
+    len += sprintf(buf + len, "writeback_index: %lu\n", mapping->writeback_index);
+    len += sprintf(buf + len, "a_ops: 0x%p\n", mapping->a_ops);
+    len += sprintf(buf + len, "flags: %#lx\n", mapping->flags);
+    len += sprintf(buf + len, "gfp_mask: %#x\n", mapping->gfp_mask);
+    len += sprintf(buf + len, "wb_err: %#x\n", mapping->wb_err);
+    len += sprintf(buf + len, "\n\n");
+
+    return len;
+}
+
+static ssize_t file_address_space_read(struct file *fp, char __user *buf,
+                                       size_t count, loff_t *ppos)
+{
+    int32_t len = 0, ret = 0;
+    char tmp_buf[1024] = {0};
+    struct path file_path;
+    uint32_t flags = 0;
+
+    ret = kern_path(get_export_file_name()->name, flags, &file_path);
+    if (ret)
+    {
+        flags |= LOOKUP_DIRECTORY;
+        ret = kern_path(get_export_file_name()->name, flags, &file_path);
+    }
+
+    if (ret)
+    {
+        return ret;
+    }
+
+    uint32_t is_dump = file_address_space_cmd_args.is_dump;
+    uint32_t is_mapping = file_address_space_cmd_args.is_mapping;
+    uint32_t page_idx = file_address_space_cmd_args.page_idx;
+    uint32_t page_offset = file_address_space_cmd_args.page_offset;
+    uint32_t dump_len = file_address_space_cmd_args.len;
+
+    const struct address_space *address =
+        is_mapping ? file_path.dentry->d_inode->i_mapping : &file_path.dentry->d_inode->i_data;
+    if (!address)
+    {
+        pr_err("no inode address space found!\n");
+        return -EINVAL;
+    }
+
+    if (is_dump)
+    {
+    }
+    else
+    {
+        len = show_file_address_space(address, tmp_buf, sizeof(tmp_buf));
+    }
+
+    return simple_read_from_buffer(buf, count, ppos, tmp_buf,
+                                   strlen(tmp_buf));
+}
+
+static const struct file_operations file_address_space_fops = {
+    .owner = THIS_MODULE,
+    .open = simple_open,
+    .read = file_address_space_read,
+    .write = file_address_space_write,
+    .llseek = default_llseek,
+};
+
 static debugfs_file_init_t file_info_files[] = {
     INIT_DEBUGFS_FILE_CREATE(export_filename, NULL, 0666),
     INIT_DEBUGFS_FILE_CREATE(file_inode, NULL, 0444),
     INIT_DEBUGFS_FILE_CREATE(file_dentry, NULL, 0444),
     INIT_DEBUGFS_FILE_CREATE(file_sb, NULL, 0444),
     INIT_DEBUGFS_FILE_CREATE(file_block_dev, NULL, 0444),
-    // INIT_DEBUGFS_FILE_CREATE(export_irqdomain, NULL, 0666),
+    INIT_DEBUGFS_FILE_CREATE(file_address_space, NULL, 0666),
     // INIT_DEBUGFS_FILE_CREATE(irqdomain_info, NULL, 0444),
     // INIT_DEBUGFS_FILE_CREATE(default_irqdomain, NULL, 0444),
     // INIT_DEBUGFS_FILE_CREATE(existed_irqdomain, NULL, 0444),

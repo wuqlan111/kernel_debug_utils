@@ -3,6 +3,10 @@
 #include <linux/init.h>
 #include <linux/debugfs.h>
 #include <linux/kallsyms.h>
+#include <linux/err.h>
+#include <linux/mm.h>
+#include <linux/slab.h>
+#include <linux/string.h>
 
 #include "debug_log.h"
 #include "debug_utils.h"
@@ -59,3 +63,98 @@ void *debug_utils_get_kernel_symbol(const char *sym)
 }
 
 #endif
+
+int32_t get_cmd_args_from_string(char *str, char ***out, uint32_t *size)
+{
+    if (!str || !size || !out)
+    {
+        return -EPERM;
+    }
+
+    uint32_t argc = 0;
+
+    *out = NULL;
+    *size = 0;
+    char *tmp = str;
+    for (;;)
+    {
+        if (*tmp == '\0')
+        {
+            break;
+        }
+
+        if (*tmp == ' ')
+        {
+            tmp = skip_spaces(tmp);
+        }
+        else
+        {
+            ++argc;
+            tmp = strchr(tmp, ' ');
+        }
+    }
+
+    if (!argc)
+    {
+        pr_warn("no args found\n");
+        return 0;
+    }
+
+    char **tmp_array = kzalloc(sizeof(char *) * (argc + 4), GFP_KERNEL);
+    uint32_t index = 0;
+    tmp = str;
+    for (;;)
+    {
+        if (*tmp == '\0')
+        {
+            break;
+        }
+
+        if (*tmp == ' ')
+        {
+            tmp = skip_spaces(tmp);
+        }
+        else
+        {
+            // ++argc;
+            tmp_array[index] = tmp;
+            ++index;
+            tmp = strchr(tmp, ' ');
+            *tmp++ = '\0';
+        }
+    }
+
+    *size = argc;
+    *out = tmp_array;
+
+    return 0;
+}
+
+void remove_string_line_break(char *str)
+{
+    char *tmp = str;
+    for (;;)
+    {
+        uint32_t found_line_break = 0;
+        char *p = strchr(tmp, '\n');
+        if (p)
+        {
+            *p = ' ';
+            tmp = p + 1;
+            found_line_break = 1;
+        }
+
+        p = strchr(tmp, '\r');
+        if (p)
+        {
+            *p = ' ';
+            tmp = p + 1;
+            found_line_break = 1;
+        }
+
+        if (!found_line_break)
+        {
+            break;
+        }
+    }
+}

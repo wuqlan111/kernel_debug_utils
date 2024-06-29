@@ -36,4 +36,8 @@ int32_t debug_utils_common_init(struct dentry *root_dir, const char *sub_dir,
 
 void *debug_utils_get_kernel_symbol(const char *sym);
 
+int32_t get_cmd_args_from_string(char *str, char ***out, uint32_t *size);
+
+void remove_string_line_break(char *str);
+
 #endif
