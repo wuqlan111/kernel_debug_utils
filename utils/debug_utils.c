@@ -158,3 +158,31 @@ void remove_string_line_break(char *str)
         }
     }
 }
+
+uint32_t debug_utils_dump_data(const uint8_t *data, const uint32_t len, char *outbuf)
+{
+    if (!data || !len || !outbuf)
+    {
+        return 0;
+    }
+
+    int32_t outlen = 0;
+    for (uint32_t i = 0; i < len; ++i)
+    {
+        if (!(i & 0xf))
+        {
+            outlen += sprintf(outbuf + outlen, "\t\t%#08x\t\t", i);
+        }
+
+        if ((i & 0xf) || (i == len - 1))
+        {
+            outlen += sprintf(outbuf + outlen, "%#02x\n", data[i]);
+        }
+        else
+        {
+            outlen += sprintf(outbuf + outlen, "%#02x ", data[i]);
+        }
+    }
+
+    return outlen;
+}

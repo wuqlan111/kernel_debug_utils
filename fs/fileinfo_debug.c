@@ -13,6 +13,7 @@
 #include <linux/genhd.h>
 #include <linux/blkdev.h>
 #include <linux/page-flags.h>
+#include <linux/pagemap.h>
 
 #include "debug_log.h"
 #include "debug_utils.h"
@@ -162,7 +163,7 @@ static ssize_t file_inode_read(struct file *fp, char __user *buf,
     len += sprintf(tmp_buf + len, "super_block: 0x%p\n", node->i_sb);
     len += sprintf(tmp_buf + len, "super_block_name: %s\n",
                    STRING_OR_NULL(node->i_sb->s_type->name));
-    len += sprintf(tmp_buf + len, "address_space: 0x%p\n", node->i_mapping);
+    len += sprintf(tmp_buf + len, "i_mapping: 0x%p\n", node->i_mapping);
     len += sprintf(tmp_buf + len, "i_data: 0x%p\n", &node->i_data);
     len += sprintf(tmp_buf + len, "ino: %#lx\n", node->i_ino);
     len += sprintf(tmp_buf + len, "i_nlink: %#x\n", node->i_nlink);
@@ -383,6 +384,7 @@ static const struct file_operations file_block_dev_fops = {
     .llseek = default_llseek,
 };
 
+#define FILE_ADDRESS_SPACE_DUMP_MAX (128u)
 static struct
 {
     uint8_t is_dump;
@@ -464,7 +466,8 @@ static ssize_t file_address_space_write(struct file *fp, const char __user *buf,
         ret |= kstrtoul(argv[4], 10, &dump_len);
     }
 
-    if (ret || ((dump_len + page_offset) > 4096))
+    if (ret || ((dump_len + page_offset) > PHYSICAL_PAGE_SIZE) ||
+        (dump_len > FILE_ADDRESS_SPACE_DUMP_MAX))
     {
         len = -EPERM;
         goto end;
@@ -511,11 +514,73 @@ static int32_t show_file_address_space(const struct address_space *mapping, char
     return len;
 }
 
+typedef struct page *(*find_get_entry_func_t)(struct address_space *, pgoff_t);
+static int32_t dump_file_address_space(struct address_space *mapping, char *buf, uint32_t size,
+                                       pgoff_t page_idx, uint32_t page_offset, uint32_t len)
+{
+    int32_t outlen = 0;
+    if (!mapping || !buf || !size)
+    {
+        return -EPERM;
+    }
+
+    find_get_entry_func_t find_get_entry_func = NULL;
+    find_get_entry_func = debug_utils_get_kernel_symbol("find_get_entry");
+    if (!find_get_entry_func)
+    {
+        pr_err("get find_get_entry kallsym failed!\n");
+        return -EINVAL;
+    }
+
+    struct page *pg = find_get_entry_func(mapping, page_idx);
+    if (!pg)
+    {
+        pr_warn("address_space [ 0x%p ] don't find page [ %lu ]\n", mapping, page_idx);
+        return -EPERM;
+    }
+
+    outlen = sprintf(buf, "\n\n**slef**: 0x%p\n", pg);
+    outlen += sprintf(buf + outlen, "flags: %#lx\n", pg->flags);
+    outlen += sprintf(buf + outlen, "mapping: 0x%p\n", pg->mapping);
+    outlen += sprintf(buf + outlen, "index: %lu\n", pg->index);
+    outlen += sprintf(buf + outlen, "private: %#lx\n", pg->private);
+    outlen += sprintf(buf + outlen, "_mapcount: %d\n", pg->_mapcount.counter);
+    outlen += sprintf(buf + outlen, "page_type: %#x\n", pg->page_type);
+    outlen += sprintf(buf + outlen, "_refcount: %d\n", pg->_refcount.counter);
+
+#if defined(WANT_PAGE_VIRTUAL)
+    outlen += sprintf(buf + outlen, "flags: %#x\n", pg->virtual);
+#endif
+    outlen += sprintf(buf + outlen, "\n\n");
+
+    if (((page_offset + len) > PHYSICAL_PAGE_SIZE) || (len > FILE_ADDRESS_SPACE_DUMP_MAX))
+    {
+        pr_warn("page_offset [%u] and len [%u] invalid\n", page_offset, len);
+        goto end;
+    }
+
+    void *map_addr = kmap(pg);
+    pr_info("map page [ 0x%p ] to addr [ 0x%p ]\n", pg, map_addr);
+    if (!map_addr)
+    {
+        pr_warn("map page to kernel failed!\n");
+        goto end;
+    }
+
+    outlen += sprintf(buf + outlen, "=====dump page data=====\n");
+    const uint8_t *page_data = (uint8_t *)map_addr + page_offset;
+    outlen += debug_utils_dump_data(page_data, len, buf + outlen);
+    outlen += sprintf(buf + outlen, "\n\n");
+    kunmap(pg);
+
+end:
+    return outlen;
+}
+
 static ssize_t file_address_space_read(struct file *fp, char __user *buf,
                                        size_t count, loff_t *ppos)
 {
-    int32_t len = 0, ret = 0;
-    char tmp_buf[1024] = {0};
+    int32_t ret = 0;
     struct path file_path;
     uint32_t flags = 0;
 
@@ -537,7 +602,7 @@ static ssize_t file_address_space_read(struct file *fp, char __user *buf,
     uint32_t page_offset = file_address_space_cmd_args.page_offset;
     uint32_t dump_len = file_address_space_cmd_args.len;
 
-    const struct address_space *address =
+    struct address_space *address =
         is_mapping ? file_path.dentry->d_inode->i_mapping : &file_path.dentry->d_inode->i_data;
     if (!address)
     {
@@ -545,16 +610,22 @@ static ssize_t file_address_space_read(struct file *fp, char __user *buf,
         return -EINVAL;
     }
 
+    char tmp_buf[1024] = {0};
+    int32_t len = 0;
     if (is_dump)
     {
+        len = dump_file_address_space(address, tmp_buf, sizeof(tmp_buf),
+                                      page_idx, page_offset, dump_len);
     }
     else
     {
         len = show_file_address_space(address, tmp_buf, sizeof(tmp_buf));
     }
 
-    return simple_read_from_buffer(buf, count, ppos, tmp_buf,
-                                   strlen(tmp_buf));
+    len = simple_read_from_buffer(buf, count, ppos, tmp_buf,
+                                  strlen(tmp_buf));
+
+    return len;
 }
 
 static const struct file_operations file_address_space_fops = {
