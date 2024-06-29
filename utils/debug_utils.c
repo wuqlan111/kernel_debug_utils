@@ -171,16 +171,16 @@ uint32_t debug_utils_dump_data(const uint8_t *data, const uint32_t len, char *ou
     {
         if (!(i & 0xf))
         {
-            outlen += sprintf(outbuf + outlen, "\t\t%#08x\t\t", i);
+            outlen += sprintf(outbuf + outlen, "\t\t%08x\t\t", i);
         }
 
-        if ((i & 0xf) || (i == len - 1))
+        if (!((i & 0xf) ^ 0xf) || (i == len - 1))
         {
-            outlen += sprintf(outbuf + outlen, "%#02x\n", data[i]);
+            outlen += sprintf(outbuf + outlen, "%02x\n", data[i]);
         }
         else
         {
-            outlen += sprintf(outbuf + outlen, "%#02x ", data[i]);
+            outlen += sprintf(outbuf + outlen, "%02x ", data[i]);
         }
     }
 

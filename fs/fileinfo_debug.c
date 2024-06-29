@@ -477,7 +477,7 @@ static ssize_t file_address_space_write(struct file *fp, const char __user *buf,
     file_address_space_cmd_args.is_mapping = is_mapping;
     file_address_space_cmd_args.page_idx = page_idx;
     file_address_space_cmd_args.page_offset = page_offset;
-    file_address_space_cmd_args.len = len;
+    file_address_space_cmd_args.len = dump_len;
 
 end:
     if (argv)
@@ -622,10 +622,8 @@ static ssize_t file_address_space_read(struct file *fp, char __user *buf,
         len = show_file_address_space(address, tmp_buf, sizeof(tmp_buf));
     }
 
-    len = simple_read_from_buffer(buf, count, ppos, tmp_buf,
-                                  strlen(tmp_buf));
-
-    return len;
+    return simple_read_from_buffer(buf, count, ppos, tmp_buf,
+                                   strlen(tmp_buf));
 }
 
 static const struct file_operations file_address_space_fops = {
