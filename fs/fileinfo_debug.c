@@ -14,6 +14,7 @@
 #include <linux/blkdev.h>
 #include <linux/page-flags.h>
 #include <linux/pagemap.h>
+#include <linux/buffer_head.h>
 
 #include "debug_log.h"
 #include "debug_utils.h"
@@ -635,6 +636,194 @@ static const struct file_operations file_address_space_fops = {
     .llseek = default_llseek,
 };
 
+static struct
+{
+    uint8_t is_mapping;
+    uint32_t page_idx;
+} file_buffer_head_cmd_args = {0};
+static ssize_t file_buffer_head_write(struct file *fp, const char __user *buf,
+                                      size_t count, loff_t *ppos)
+{
+    int32_t ret = 0;
+    char tmp_str[256] = {0};
+    int32_t len = simple_write_to_buffer(tmp_str, sizeof(tmp_str),
+                                         ppos, buf, count);
+    if (len < count)
+    {
+        return -EPERM;
+    }
+
+    remove_string_line_break(tmp_str);
+
+    char **argv = NULL;
+    uint32_t argc = 0;
+    ret = get_cmd_args_from_string(tmp_str, &argv, &argc);
+    if (ret || !argv || !argc)
+    {
+        len = -EPERM;
+        pr_err("input cmd args invalid\n");
+        goto end;
+    }
+
+    if (argc != 2)
+    {
+        len = -EPERM;
+        pr_err("cmd args count [%u] invalid!\n", argc);
+        goto end;
+    }
+
+    uint32_t is_mapping = 0;
+    if (!strcmp(argv[0], "i_mapping"))
+    {
+        is_mapping = 1;
+    }
+    else if (!strcmp(argv[0], "i_data"))
+    {
+        is_mapping = 0;
+    }
+    else
+    {
+        pr_err("address space [%s] invalid!\n", argv[0]);
+        len = -EPERM;
+        goto end;
+    }
+
+    unsigned long page_idx = 0;
+    ret = kstrtoul(argv[1], 16, &page_idx);
+    if (ret)
+    {
+        len = -EPERM;
+        goto end;
+    }
+
+    file_buffer_head_cmd_args.is_mapping = is_mapping;
+    file_buffer_head_cmd_args.page_idx = page_idx;
+
+end:
+    if (argv)
+    {
+        kfree(argv);
+    }
+    if (len < 0)
+    {
+        pr_notice("usage: i_mapping|i_data [page_idx]\n");
+    }
+
+    return len;
+}
+
+static ssize_t file_buffer_head_read(struct file *fp, char __user *buf,
+                                     size_t count, loff_t *ppos)
+{
+    int32_t ret = 0;
+    struct path file_path;
+    uint32_t flags = 0;
+    char tmp_buf[1024] = {0};
+
+    ret = kern_path(get_export_file_name()->name, flags, &file_path);
+    if (ret)
+    {
+        flags |= LOOKUP_DIRECTORY;
+        ret = kern_path(get_export_file_name()->name, flags, &file_path);
+    }
+    if (ret)
+    {
+        return ret;
+    }
+
+    uint32_t is_mapping = file_buffer_head_cmd_args.is_mapping;
+    uint32_t page_idx = file_buffer_head_cmd_args.page_idx;
+
+    struct address_space *address =
+        is_mapping ? file_path.dentry->d_inode->i_mapping : &file_path.dentry->d_inode->i_data;
+    if (!address)
+    {
+        pr_err("no inode address space found!\n");
+        return -EINVAL;
+    }
+
+    find_get_entry_func_t find_get_entry_func = NULL;
+    find_get_entry_func = debug_utils_get_kernel_symbol("find_get_entry");
+    if (!find_get_entry_func)
+    {
+        pr_err("get find_get_entry kallsym failed!\n");
+        return -EINVAL;
+    }
+
+    struct page *pg = find_get_entry_func(address, page_idx);
+    if (!pg)
+    {
+        pr_warn("address_space [ 0x%p ] don't find page [ %u ]\n", address, page_idx);
+        return -EPERM;
+    }
+
+    if (!page_has_buffers(pg))
+    {
+        pr_warn("page [ 0x%p ] don't have buffer head!\n", pg);
+        goto end;
+    }
+
+    uint32_t is_dirty = 0, is_writeback = 0;
+    if (PageWriteback(pg))
+    {
+        is_writeback = 1;
+    }
+
+    int32_t len = 0;
+    struct buffer_head *head = page_buffers(pg);
+    struct buffer_head *bh = head;
+    uint32_t buffer_idx = 0;
+    do
+    {
+        len += sprintf(tmp_buf + len, "\n\n======buffer_head[%u]======\n", buffer_idx++);
+        len += sprintf(tmp_buf + len, "self: 0x%p\n", bh);
+        len += sprintf(tmp_buf + len, "b_state: %#lx\n", bh->b_state);
+        len += sprintf(tmp_buf + len, "b_this_page: 0x%p\n", bh->b_this_page);
+        len += sprintf(tmp_buf + len, "b_page: 0x%p\n", bh->b_page);
+        len += sprintf(tmp_buf + len, "b_blocknr: %#llx\n", bh->b_blocknr);
+        len += sprintf(tmp_buf + len, "b_size: %lu\n", bh->b_size);
+        len += sprintf(tmp_buf + len, "b_data: 0x%p\n", bh->b_data);
+        len += sprintf(tmp_buf + len, "b_bdev: 0x%p\n", bh->b_bdev);
+        if (bh->b_bdev)
+        {
+            len += sprintf(tmp_buf + len, "b_bdev_name: %s\n",
+                           STRING_OR_NULL(bh->b_bdev->bd_disk->disk_name));
+        }
+        len += sprintf(tmp_buf + len, "b_private: 0x%p\n", bh->b_private);
+        len += sprintf(tmp_buf + len, "b_assoc_map: 0x%p\n", bh->b_assoc_map);
+        len += sprintf(tmp_buf + len, "b_count: %d\n", bh->b_count.counter);
+        len += sprintf(tmp_buf + len, "b_dirty: %s\n", BOOL_TO_STR(buffer_locked(bh)));
+        len += sprintf(tmp_buf + len, "b_writeback: %s\n", BOOL_TO_STR(buffer_dirty(bh)));
+
+        if (buffer_locked(bh))
+        {
+            is_writeback = 1;
+        }
+        if (buffer_dirty(bh))
+        {
+            is_dirty = 1;
+        }
+
+        bh = bh->b_this_page;
+    } while ((bh != head) && bh);
+
+    len += sprintf(tmp_buf + len, "\n\npage: 0x%p\n", pg);
+    len += sprintf(tmp_buf + len, "is_dirty: %s\n", BOOL_TO_STR(is_dirty));
+    len += sprintf(tmp_buf + len, "is_writeback: %s\n", BOOL_TO_STR(is_writeback));
+    len += sprintf(tmp_buf + len, "\n\n");
+end:
+    return simple_read_from_buffer(buf, count, ppos, tmp_buf,
+                                   strlen(tmp_buf));
+}
+
+static const struct file_operations file_buffer_head_fops = {
+    .owner = THIS_MODULE,
+    .open = simple_open,
+    .read = file_buffer_head_read,
+    .write = file_buffer_head_write,
+    .llseek = default_llseek,
+};
+
 static debugfs_file_init_t file_info_files[] = {
     INIT_DEBUGFS_FILE_CREATE(export_filename, NULL, 0666),
     INIT_DEBUGFS_FILE_CREATE(file_inode, NULL, 0444),
@@ -642,6 +831,7 @@ static debugfs_file_init_t file_info_files[] = {
     INIT_DEBUGFS_FILE_CREATE(file_sb, NULL, 0444),
     INIT_DEBUGFS_FILE_CREATE(file_block_dev, NULL, 0444),
     INIT_DEBUGFS_FILE_CREATE(file_address_space, NULL, 0666),
+    INIT_DEBUGFS_FILE_CREATE(file_buffer_head, NULL, 0666),
     // INIT_DEBUGFS_FILE_CREATE(irqdomain_info, NULL, 0444),
     // INIT_DEBUGFS_FILE_CREATE(default_irqdomain, NULL, 0444),
     // INIT_DEBUGFS_FILE_CREATE(existed_irqdomain, NULL, 0444),
